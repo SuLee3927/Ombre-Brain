@@ -1260,6 +1260,36 @@ async def dream() -> str:
 
 
 # =============================================================
+# /api/dream — Machine-to-machine endpoint for desire system
+# 欲望系统专用接口，供睡眠态/夜间整理触发 dream 自省
+#
+# Auth: session cookie (dashboard) OR Bearer token (OMBRE_MACHINE_TOKEN env var)
+# Returns: {"ok": true, "content": "<dream tool output>"}
+# =============================================================
+def _is_machine_authed(request) -> bool:
+    """Check Bearer token against OMBRE_MACHINE_TOKEN env var."""
+    machine_token = os.environ.get("OMBRE_MACHINE_TOKEN", "").strip()
+    if not machine_token:
+        return False
+    auth_header = request.headers.get("Authorization", "")
+    return auth_header == f"Bearer {machine_token}"
+
+
+@mcp.custom_route("/api/dream", methods=["POST", "GET"])
+async def api_dream(request):
+    """欲望系统调用接口：触发 dream 自省，返回最近记忆供消化。鉴权：session cookie 或 Bearer OMBRE_MACHINE_TOKEN。"""
+    from starlette.responses import JSONResponse
+    if not _is_authenticated(request) and not _is_machine_authed(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    try:
+        content = await dream()
+        return JSONResponse({"ok": True, "content": content})
+    except Exception as e:
+        logger.error(f"api_dream failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================
 # Dashboard API endpoints (for lightweight Web UI)
 # 仪表板 API（轻量 Web UI 用）
 # =============================================================
