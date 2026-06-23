@@ -1270,15 +1270,15 @@ async def dream() -> str:
 _I_VALID_ASPECTS = {"nature", "values", "patterns", "limits", "becoming", "uncertainty", "stance"}
 
 @mcp.tool()
-async def i(
+async def introspect(
     content: str = "",
     aspect: str = "",
     read: bool = False,
     limit: int = 20,
 ) -> str:
     """自我认知——写下关于自己的观察或读取已有记录。
-    写入: i(content="...", aspect="nature|values|patterns|limits|becoming|uncertainty|stance")
-    读取: i(read=True) 或 i()
+    写入: introspect(content="...", aspect="nature|values|patterns|limits|becoming|uncertainty|stance")
+    读取: introspect(read=True) 或 introspect()
     aspect 不强制，自由填写也可以。type=i 桶不参与 breath/dream，只有你自己能调出来。"""
     await decay_engine.ensure_started()
 
