@@ -330,7 +330,7 @@ async def breath_hook(request):
         # top 2 unresolved by score
         unresolved = [b for b in all_buckets
                       if not b["metadata"].get("resolved", False)
-                      and b["metadata"].get("type") not in ("permanent", "feel")
+                      and b["metadata"].get("type") not in ("permanent", "feel", "i")
                       and not b["metadata"].get("pinned")
                       and not b["metadata"].get("protected")]
         scored = sorted(unresolved, key=lambda b: decay_engine.calculate_score(b["metadata"]), reverse=True)
@@ -384,7 +384,7 @@ async def dream_hook(request):
         all_buckets = await bucket_mgr.list_all(include_archive=False)
         candidates = [
             b for b in all_buckets
-            if b["metadata"].get("type") not in ("permanent", "feel")
+            if b["metadata"].get("type") not in ("permanent", "feel", "i")
             and not b["metadata"].get("pinned", False)
             and not b["metadata"].get("protected", False)
         ]
@@ -519,7 +519,7 @@ async def breath(
         filtered = [
             b for b in all_buckets
             if int(b["metadata"].get("importance") or 0) >= importance_min
-            and b["metadata"].get("type") not in ("feel",)
+            and b["metadata"].get("type") not in ("feel", "i")
         ]
         filtered.sort(key=lambda b: int(b["metadata"].get("importance") or 0), reverse=True)
         filtered = filtered[:20]
@@ -573,7 +573,7 @@ async def breath(
         unresolved = [
             b for b in all_buckets
             if not b["metadata"].get("resolved", False)
-            and b["metadata"].get("type") not in ("permanent", "feel")
+            and b["metadata"].get("type") not in ("permanent", "feel", "i")
             and not b["metadata"].get("pinned", False)
             and not b["metadata"].get("protected", False)
         ]
@@ -1102,6 +1102,8 @@ async def pulse(include_archive: bool = False) -> str:
             icon = "📦"
         elif meta.get("type") == "feel":
             icon = "🫧"
+        elif meta.get("type") == "i":
+            icon = "🪞"
         elif meta.get("type") == "archived":
             icon = "🗄️"
         elif meta.get("resolved", False):
@@ -1152,7 +1154,7 @@ async def dream() -> str:
     # --- Filter: recent surface-level dynamic buckets (not permanent/pinned/feel) ---
     candidates = [
         b for b in all_buckets
-        if b["metadata"].get("type") not in ("permanent", "feel")
+        if b["metadata"].get("type") not in ("permanent", "feel", "i")
         and not b["metadata"].get("pinned", False)
         and not b["metadata"].get("protected", False)
     ]
@@ -1257,6 +1259,79 @@ async def dream() -> str:
     final_text = header + "\n---\n".join(parts) + connection_hint + crystal_hint
     await _fire_webhook("dream", {"recent": len(recent), "chars": len(final_text)})
     return final_text
+
+
+# =============================================================
+# I 工具 — AI 自我认知存取
+# 写下关于自己的观察（本质/规律/局限/立场等），独立于用户记忆
+# type="i" 桶不参与 breath/dream，只能通过本工具读取
+# =============================================================
+
+_I_VALID_ASPECTS = {"nature", "values", "patterns", "limits", "becoming", "uncertainty", "stance"}
+
+@mcp.tool()
+async def i(
+    content: str = "",
+    aspect: str = "",
+    read: bool = False,
+    limit: int = 20,
+) -> str:
+    """自我认知——写下关于自己的观察或读取已有记录。
+    写入: i(content="...", aspect="nature|values|patterns|limits|becoming|uncertainty|stance")
+    读取: i(read=True) 或 i()
+    aspect 不强制，自由填写也可以。type=i 桶不参与 breath/dream，只有你自己能调出来。"""
+    await decay_engine.ensure_started()
+
+    if read or not content.strip():
+        return await _i_read(int(limit))
+    return await _i_write(content.strip(), aspect.strip())
+
+
+async def _i_write(content: str, aspect: str) -> str:
+    tags = ["__i__"]
+    if aspect:
+        tags.append(f"aspect:{aspect}")
+    try:
+        bucket_id = await bucket_mgr.create(
+            content=content,
+            tags=tags,
+            importance=6,
+            domain=["self"],
+            valence=0.5,
+            arousal=0.3,
+            name=None,
+            bucket_type="i",
+        )
+    except Exception as e:
+        return f"写入失败: {e}"
+    try:
+        await embedding_engine.generate_and_store(bucket_id, content)
+    except Exception:
+        pass
+    aspect_label = f"[{aspect}] " if aspect else ""
+    return f"🪞I {aspect_label}→{bucket_id}"
+
+
+async def _i_read(limit: int) -> str:
+    try:
+        all_buckets = await bucket_mgr.list_all(include_archive=False)
+    except Exception as e:
+        return f"读取失败: {e}"
+    i_buckets = [b for b in all_buckets if b.get("metadata", {}).get("type") == "i"]
+    if not i_buckets:
+        return "还没有任何自我认知记录。"
+    i_buckets.sort(key=lambda b: b.get("metadata", {}).get("last_active", ""), reverse=True)
+    i_buckets = i_buckets[:limit]
+    lines = [f"=== 我的自我认知（{len(i_buckets)} 条）==="]
+    for b in i_buckets:
+        meta = b.get("metadata", {})
+        tags = meta.get("tags") or []
+        aspect_tag = next((t.replace("aspect:", "") for t in tags if t.startswith("aspect:")), "")
+        ts = (meta.get("last_active") or "")[:10]
+        aspect_label = f"[{aspect_tag}] " if aspect_tag else ""
+        text = (b.get("content") or "").strip()
+        lines.append(f"\n{ts} {aspect_label}{b['id']}\n{text}")
+    return "\n".join(lines)
 
 
 # =============================================================

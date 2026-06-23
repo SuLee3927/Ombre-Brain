@@ -111,6 +111,10 @@ class DecayEngine:
         if metadata.get("type") == "feel":
             return 50.0
 
+        # --- I (self-knowledge) buckets: never decay ---
+        if metadata.get("type") == "i":
+            return 60.0
+
         importance = max(1, min(10, int(metadata.get("importance") or 5)))
         activation_count = max(1.0, float(metadata.get("activation_count") or 1))
 
@@ -197,7 +201,7 @@ class DecayEngine:
 
             # Skip permanent / pinned / protected / feel buckets
             # 跳过固化桶、钉选/保护桶和 feel 桶
-            if meta.get("type") in ("permanent", "feel") or meta.get("pinned") or meta.get("protected"):
+            if meta.get("type") in ("permanent", "feel", "i") or meta.get("pinned") or meta.get("protected"):
                 continue
 
             checked += 1
