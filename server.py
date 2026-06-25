@@ -195,12 +195,12 @@ def _is_authenticated(request) -> bool:
 def _require_auth(request):
     """Return JSONResponse(401) if not authenticated, else None."""
     from starlette.responses import JSONResponse
-    if not _is_authenticated(request):
-        return JSONResponse(
-            {"error": "Unauthorized", "setup_needed": _is_setup_needed()},
-            status_code=401,
-        )
-    return None
+    if _is_authenticated(request) or _is_machine_authed(request):
+        return None
+    return JSONResponse(
+        {"error": "Unauthorized", "setup_needed": _is_setup_needed()},
+        status_code=401,
+    )
 
 
 # --- Auth endpoints ---
