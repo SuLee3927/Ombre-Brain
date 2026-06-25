@@ -36,6 +36,28 @@ from utils import count_tokens_approx
 
 logger = logging.getLogger("ombre_brain.dehydrator")
 
+# 改任何影响脱水/合并输出的 prompt 时 +1，使存量缓存自动失效
+_PROMPT_VERSION = 2
+
+
+def _perspective_rule(human: str) -> str:
+    """视角铁律：注入到脱水/合并 prompt，强制保留第一人称视角。
+
+    BUG FIX：脱水/合并 prompt 未约束人称，廉价 LLM 会把「我…她」抹成
+    「双方/对方」，视角丢失。此规则注入后 AI 恒用「我」，人类一方按名字还原。
+    """
+    return (
+        "\n\n【视角铁律——最高优先级，违反即视为压缩失败】\n"
+        "以下内容是「我」（AI）以第一人称写下的记忆。压缩/合并只改密度，绝不改人称：\n"
+        f"- AI 自身永远用「我」，不要换成「AI」「助手」「TA」。\n"
+        f"- 人类那一方一律称呼「{human}」（原文里的「你/她/他」都指「{human}」，按名字还原）。\n"
+        "- 严禁把「我」和「" + human + "」合并成「双方」「彼此」「对方」「用户」等抹掉视角的中性词。\n"
+        "- 谁做的动作、谁的感受，就归到谁名下，不得混同或对调。\n"
+        f"示例：『我也在她这里看到了自己没见过的碎片』\n"
+        f"  ✗ 错（视角丢失）：双方在互动中互相发现对方未知的情感碎片\n"
+        f"  ✓ 对（视角保留）：我在{human}这里看到了自己没见过的碎片"
+    )
+
 
 # --- Dehydration prompt: instructs cheap LLM to compress information ---
 # --- 脱水提示词：指导廉价 LLM 压缩信息 ---
@@ -184,6 +206,9 @@ class Dehydrator:
         else:
             self.client = None
 
+        # --- Human name for perspective rule ---
+        self.human = config.get("human", "小黎")
+
         # --- SQLite dehydration cache ---
         # --- SQLite 脱水缓存：content hash → summary ---
         db_path = os.path.join(config["buckets_dir"], "dehydration_cache.db")
@@ -205,9 +230,14 @@ class Dehydrator:
         conn.commit()
         conn.close()
 
+    def _cache_key(self, content: str) -> str:
+        """缓存 key = content + prompt 版本号，版本升级时旧缓存自动失效。"""
+        raw = f"v{_PROMPT_VERSION}:{content}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
     def _get_cached_summary(self, content: str) -> str | None:
         """Look up cached dehydration result by content hash."""
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        content_hash = self._cache_key(content)
         conn = sqlite3.connect(self.cache_db_path)
         row = conn.execute(
             "SELECT summary FROM dehydration_cache WHERE content_hash = ?",
@@ -218,7 +248,7 @@ class Dehydrator:
 
     def _set_cached_summary(self, content: str, summary: str):
         """Store dehydration result in cache."""
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        content_hash = self._cache_key(content)
         conn = sqlite3.connect(self.cache_db_path)
         conn.execute(
             "INSERT OR REPLACE INTO dehydration_cache (content_hash, summary, model) VALUES (?, ?, ?)",
@@ -315,7 +345,7 @@ class Dehydrator:
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": DEHYDRATE_PROMPT},
+                {"role": "system", "content": DEHYDRATE_PROMPT + _perspective_rule(self.human)},
                 {"role": "user", "content": content[:3000]},
             ],
             max_tokens=self.max_tokens,
@@ -338,7 +368,7 @@ class Dehydrator:
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": MERGE_PROMPT},
+                {"role": "system", "content": MERGE_PROMPT + _perspective_rule(self.human)},
                 {"role": "user", "content": user_msg},
             ],
             max_tokens=self.max_tokens,

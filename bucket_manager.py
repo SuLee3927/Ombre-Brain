@@ -300,10 +300,19 @@ class BucketManager:
         # 注意：resolved 桶不在此自动归档，留在 dynamic/ 随衰减引擎自然归档。
         domain = post.get("domain", ["未分类"])
         if kwargs.get("pinned") and post.get("type") != "permanent":
+            # pin → 升级到 permanent/
             post["type"] = "permanent"
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(frontmatter.dumps(post))
             self._move_bucket(file_path, self.permanent_dir, domain)
+        elif "pinned" in kwargs and not kwargs["pinned"] and post.get("type") == "permanent":
+            # unpin → 对称降级回 dynamic/
+            # BUG FIX：旧版只翻 pinned 标记，桶留在 permanent/，get_stats 永远计入
+            # permanent_count，且 calculate_score 对 type==permanent 恒返高分，卡住召回。
+            post["type"] = "dynamic"
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(frontmatter.dumps(post))
+            self._move_bucket(file_path, self.dynamic_dir, domain)
 
         logger.info(f"Updated bucket / 更新记忆桶: {bucket_id}")
         return True
