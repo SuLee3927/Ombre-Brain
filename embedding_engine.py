@@ -35,7 +35,6 @@ class EmbeddingEngine:
         self.api_key = (embed_cfg.get("api_key") or dehy_cfg.get("api_key") or "").strip()
         self.base_url = (
             (embed_cfg.get("base_url") or "").strip()
-            or (dehy_cfg.get("base_url") or "").strip()
             or "https://generativelanguage.googleapis.com/v1beta/openai/"
         )
         self.model = embed_cfg.get("model", "gemini-embedding-001")
