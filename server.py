@@ -1423,6 +1423,32 @@ async def api_bucket_detail(request):
     })
 
 
+@mcp.custom_route("/api/hold", methods=["POST"])
+async def api_hold(request):
+    """Create a bucket via HTTP (machine-to-machine)."""
+    from starlette.responses import JSONResponse
+    err = _require_auth(request)
+    if err: return err
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    content = body.get("content", "")
+    if not content or not content.strip():
+        return JSONResponse({"error": "content is required"}, status_code=400)
+    try:
+        result = await hold(
+            content=content,
+            tags=body.get("tags", ""),
+            importance=body.get("importance", 5),
+            pinned=body.get("pinned", False),
+            feel=body.get("feel", False),
+        )
+        return JSONResponse({"ok": True, "result": result})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @mcp.custom_route("/api/search", methods=["GET"])
 async def api_search(request):
     """Search buckets by query."""
