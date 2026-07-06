@@ -930,10 +930,21 @@ async def grow(content: str) -> str:
         items = await dehydrator.digest(content)
     except Exception as e:
         logger.error(f"Diary digest failed / 日记整理失败: {e}")
-        return f"日记整理失败: {e}"
+        items = []
 
+    # --- 兜底：整理失败时原文直接存单条，绝不丢内容 ---
     if not items:
-        return "内容为空或整理失败。"
+        logger.warning("Digest empty, storing raw content as fallback / 整理为空，原文兜底入库")
+        try:
+            result_name, is_merged = await _merge_or_create(
+                content=content.strip(),
+                tags=[], importance=6, domain=["未分类"],
+                valence=0.5, arousal=0.3, name="",
+            )
+            return f"整理失败已原文入库 → {result_name}（回头可用 trace 重新整理）"
+        except Exception as e2:
+            logger.error(f"Fallback store also failed / 兜底入库也失败: {e2}")
+            return f"日记整理失败且兜底入库失败: {e2}"
 
     results = []
     created = 0
