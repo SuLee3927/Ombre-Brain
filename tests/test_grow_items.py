@@ -115,7 +115,8 @@ async def test_dispatch_routes_to_items_when_provided(grow_rt):
 
 @pytest.mark.asyncio
 async def test_dispatch_without_items_unchanged(grow_rt):
-    # 不传 items：长文仍走 digest 路径（stub.digest 会炸，grow_core 包成 RuntimeError）
-    # → 证明默认路径没变、digest 仍在原路径被调用
-    with pytest.raises(RuntimeError):
-        await dispatch(content="这是一段超过三十个字的长文本内容需要走 digest 拆分路径来验证向后兼容性没有被破坏")
+    # [fork行为] 不传 items：长文仍走 digest 路径（stub.digest 会炸），
+    # 但 fork 加了兜底——digest 失败不再 raise 丢内容，而是原文直接入库。
+    # → 证明默认路径没变（digest 仍被调用）+ 兜底生效（内容保住了）
+    result = await dispatch(content="这是一段超过三十个字的长文本内容需要走 digest 拆分路径来验证向后兼容性没有被破坏")
+    assert "兜底入库" in result

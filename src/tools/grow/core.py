@@ -41,12 +41,29 @@ async def grow_core(content: str) -> str:
         items = await rt.dehydrator.digest(content)
     except Exception as e:
         rt.logger.error(f"Diary digest failed / 日记整理失败: {e}")
-        raise RuntimeError(
-            f"API key 未配置或调用失败，日记拆分无法完成，桶未创建。请检查 OMBRE_COMPRESS_API_KEY。（错误：{e}）"
-        ) from e
+        items = []
 
+    # [fork加装] 兜底：digest 失败/为空时原文直接入库，绝不丢内容（2026-07-06 记忆丢失事故教训）
     if not items:
-        return "内容为空或整理失败。"
+        if not content.strip():
+            return "内容为空。"
+        rt.logger.warning("Digest empty, storing raw content as fallback / 整理为空，原文兜底入库")
+        try:
+            result_name, is_merged, _warn = await merge_or_create(
+                content=content.strip(),
+                tags=[],
+                importance=6,
+                domain=["未分类"],
+                valence=0.5,
+                arousal=0.3,
+                name="",
+                source_tool="grow",
+            )
+            action = "合并" if is_merged else "新建"
+            return f"整理失败已原文兜底入库（{action}）→ {result_name}（回头可用 trace 重新整理）"
+        except Exception as e2:
+            rt.logger.error(f"Fallback store also failed / 兜底入库也失败: {e2}")
+            raise RuntimeError(f"日记整理失败且兜底入库失败: {e2}") from e2
 
     # iter 2.0 来源追踪：同一次 grow 拆出的所有桶共享同一个 batch_id，
     # dashboard 可按 grow_batch_id 聚合显示「这次日记一共归档了哪些事件」。
