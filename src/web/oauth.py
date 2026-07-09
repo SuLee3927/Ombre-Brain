@@ -125,6 +125,12 @@ def _verify_pkce(code_verifier: str, code_challenge: str) -> bool:
 
 
 def _is_valid_mcp_token(token: str) -> bool:
+    # [fork加装] 静态 token 直连：Claude Code CLI 等 headless 客户端无法走浏览器 OAuth，
+    # 设 OMBRE_MCP_STATIC_TOKEN 后可用固定 Bearer 直连 /mcp（安全级别同 hooks token）
+    import hmac as _hmac
+    static = os.environ.get("OMBRE_MCP_STATIC_TOKEN", "").strip()
+    if static and _hmac.compare_digest(token, static):
+        return True
     expiry = _mcp_tokens.get(token)
     if expiry is None:
         return False
