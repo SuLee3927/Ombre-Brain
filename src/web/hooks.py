@@ -261,7 +261,7 @@ def register(mcp) -> None:
         timeout_seconds = setting_int("timeout_seconds", 45, 5, 120)
         per_call_timeout = setting_int("dehydrate_timeout_seconds", 12, 2, 30)
         max_dehydrate_calls = setting_int("max_dehydrate_calls", 8, 0, 32)
-        token_budget = setting_int("max_tokens", 10_000, 500, 50_000)
+        token_budget = setting_int("max_tokens", 4_000, 500, 50_000)  # [fork] 默认预算收紧：微信bridge开窗注入用，省笃的上下文（上游默认10000，config hooks.max_tokens可覆盖）
         no_store_headers = {
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
