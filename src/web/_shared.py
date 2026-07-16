@@ -1080,6 +1080,17 @@ def _create_session_for_credential(proof: CredentialProof) -> str | None:
 
 
 def _is_authenticated(request: Request) -> bool:
+    # [fork加装·恢复] 机器对机器认证：desire/日历等后台服务用固定 Bearer 调 API，
+    # 无法持有 dashboard 会话。设 OMBRE_MACHINE_TOKEN 后与会话 cookie 共存。
+    # （2026-07-16 合并 v2.7.2 时此补丁曾被上游重构吞掉，重新移植于此）
+    import hmac as _hmac_machine
+    _machine = os.environ.get("OMBRE_MACHINE_TOKEN", "").strip()
+    if _machine:
+        _auth_header = request.headers.get("authorization", "")
+        if _auth_header.startswith("Bearer ") and _hmac_machine.compare_digest(
+            _auth_header[7:].strip(), _machine
+        ):
+            return True
     token = request.cookies.get("ombre_session")
     if not token:
         return False

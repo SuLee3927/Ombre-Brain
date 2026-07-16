@@ -838,7 +838,9 @@ async def letter_read(
 
 
 @mcp_extra.tool()
-async def I(
+# [fork加装·恢复] 单字母工具名在 claude.ai MCP 注册会失败（上游叫 I），fork 改名 introspect；
+# 笃在 claude.ai 端认的也是 introspect（2026-07-16 合并 v2.7.2 时被上游覆盖，重新改回）
+async def introspect(
     content: Optional[str] = "",
     aspect: Optional[str] = "",
     read: Optional[bool] = False,
@@ -847,7 +849,7 @@ async def I(
     """记录或读取自我认知条目。content=要记录的自我认知内容(空=进入读取模式)。aspect=维度:nature(本质)/values(看重的)/patterns(规律)/limits(局限)/becoming(变化方向)/uncertainty(不确定的)/stance(立场)(可选)。read=True=读取所有已积累条目。limit=返回条数上限(默认 20)。条目不参与普通 breath/dream，SessionStart 时自动附最近 3 条。"""
     return await _with_notice(
         _t_i.dispatch(content=content, aspect=aspect, read=read, limit=limit),
-        op="I",
+        op="introspect",
         args={"content_len": len(content or ""), "aspect": aspect, "read": read, "limit": limit},
     )
 

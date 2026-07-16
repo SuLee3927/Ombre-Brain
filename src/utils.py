@@ -521,6 +521,9 @@ def load_config(config_path: Optional[str] = None) -> dict:
     _apply_env_float_override(config, "OMBRE_COMPRESS_TIMEOUT_SECONDS", "dehydration", "timeout_seconds")
 
     # 向量化组（embedding）—— 写到 config["embedding"][*]
+    # [fork加装·恢复] 旧变量名兼容：Zeabur 上现存部署用的是 OMBRE_EMBEDDING_API_KEY，
+    # 先应用旧名，再让官方名 OMBRE_EMBED_API_KEY 覆盖（官方名优先，与上游2.6.12兼容原则一致）
+    _apply_env_override(config, "OMBRE_EMBEDDING_API_KEY", "embedding", "api_key")
     _apply_env_override(config, "OMBRE_EMBED_API_KEY", "embedding", "api_key")
     _apply_env_override(config, "OMBRE_EMBED_BASE_URL", "embedding", "base_url")
     _apply_env_override(config, "OMBRE_EMBED_MODEL", "embedding", "model")
