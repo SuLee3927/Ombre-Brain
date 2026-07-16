@@ -31,6 +31,7 @@ from .. import _runtime as rt
 from .._common import (
     merge_or_create,
     check_content_size,
+    check_grow_items_payload,
     check_duplicate_for,
     check_plan_resolution,
 )
@@ -43,11 +44,9 @@ async def grow_core(content: str) -> str:
         rt.logger.error(f"Diary digest failed / 日记整理失败: {e}")
         items = []
 
-    # [fork加装] 兜底：digest 失败/为空时原文直接入库，绝不丢内容（2026-07-06 记忆丢失事故教训）
-    if not items:
-        if not content.strip():
-            return "内容为空。"
-        rt.logger.warning("Digest empty, storing raw content as fallback / 整理为空，原文兜底入库")
+    # [fork加装·保留] 兜底：digest 失败/为空/不合规时原文直接入库，绝不丢内容（2026-07-06 记忆丢失事故教训）
+    async def _fallback_store(reason: str) -> str:
+        rt.logger.warning(f"{reason}，原文兜底入库 / storing raw content as fallback")
         try:
             result_name, is_merged, _warn = await merge_or_create(
                 content=content.strip(),
@@ -64,6 +63,18 @@ async def grow_core(content: str) -> str:
         except Exception as e2:
             rt.logger.error(f"Fallback store also failed / 兜底入库也失败: {e2}")
             raise RuntimeError(f"日记整理失败且兜底入库失败: {e2}") from e2
+
+    if not isinstance(items, list) or not items:
+        if not content.strip():
+            return "内容为空。"
+        return await _fallback_store("Digest empty / 整理为空")
+    payload_err = check_grow_items_payload(items)
+    if payload_err:
+        # 上游会直接拒收丢内容；fork 原则是宁可存粗糙原文也不丢
+        rt.logger.warning(f"grow digest output rejected: {payload_err}")
+        if content.strip():
+            return await _fallback_store(f"digest输出不合规（{payload_err}）")
+        return payload_err
 
     # iter 2.0 来源追踪：同一次 grow 拆出的所有桶共享同一个 batch_id，
     # dashboard 可按 grow_batch_id 聚合显示「这次日记一共归档了哪些事件」。
@@ -125,6 +136,10 @@ async def grow_items(items: list) -> str:
     - 合并走 raw_merge=True（原文追加，不 LLM 压缩老+新），消除第三次失真。
     存储沿用 grow 风格：共享 grow_batch_id，source_tool=grow，dashboard 仍可按批展示。
     """
+    payload_err = check_grow_items_payload(items)
+    if payload_err:
+        return payload_err
+
     # 规整：接受字符串条目；也容忍 {"content": "..."} 形式，取其正文。空条目丢弃。
     clean: list[str] = []
     for it in items:
@@ -145,14 +160,27 @@ async def grow_items(items: list) -> str:
     merged = 0
     embed_warnings = []
 
+    metadata_fallback = False
     for content_str in clean:
         try:
             size_err = check_content_size(content_str)
             if size_err:
                 results.append(f"⚠️（{size_err}）")
                 continue
-            # 只打标，不改写正文
-            meta = await rt.dehydrator.analyze(content_str)
+            # 只打标，不改写正文；打标失败（如 API key 未配置）不应丢正文——
+            # 落回本地中性元数据，与 hold 的降级行为保持一致（见 tools/hold/core.py）。
+            try:
+                meta = await rt.dehydrator.analyze(content_str)
+            except Exception as e:
+                metadata_fallback = True
+                rt.logger.warning(
+                    "grow items metadata analysis failed; preserving raw content with local defaults / "
+                    f"grow items 打标失败，使用本地默认元数据并原样保存正文: {type(e).__name__}: {e}"
+                )
+                default_analysis = getattr(rt.dehydrator, "_default_analysis", None)
+                meta = default_analysis() if callable(default_analysis) else {
+                    "domain": ["未分类"], "valence": 0.5, "arousal": 0.3, "tags": [], "suggested_name": "",
+                }
             result_name, is_merged, embed_warn = await merge_or_create(
                 content=content_str,
                 tags=meta.get("tags") or [],
@@ -182,4 +210,6 @@ async def grow_items(items: list) -> str:
     summary = f"{len(clean)}条(预拆分·逐字)|新{created}合{merged} batch:{batch_id}\n" + "\n".join(results)
     if embed_warnings:
         summary += f"\n⚠️ {embed_warnings[0]}"
+    if metadata_fallback:
+        summary += "\n⚠️ 打标 API 暂不可用：正文已逐字保存，未做任何压缩；元数据暂用本地中性值。"
     return summary
