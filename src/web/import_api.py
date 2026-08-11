@@ -29,14 +29,15 @@ from starlette.responses import FileResponse, Response
 from . import _shared as sh
 
 try:
-    from utils import parse_bool, sanitize_name  # type: ignore
+    from utils import normalize_memory_title, parse_bool, sanitize_name  # type: ignore
 except ImportError:  # pragma: no cover
-    from ..utils import parse_bool, sanitize_name  # type: ignore
+    from ..utils import normalize_memory_title, parse_bool, sanitize_name  # type: ignore
 
-try:
-    from backup_archive import MAX_ARCHIVE_BYTES, BackupArchiveError, build_export_archive_file  # type: ignore
-except ImportError:  # pragma: no cover
-    from ..backup_archive import MAX_ARCHIVE_BYTES, BackupArchiveError, build_export_archive_file  # type: ignore
+from ombrebrain.storage.backup_archive import (
+    MAX_ARCHIVE_BYTES,
+    BackupArchiveError,
+    build_export_archive_file,
+)
 
 logger = sh.logger
 
@@ -47,6 +48,8 @@ try:
         check_content_size as _check_content_size,
         check_pinned_quota as _check_pinned_quota,
         enforce_high_importance_quota as _enforce_high_importance_quota,
+        is_terminal_memory_metadata as _is_terminal_memory_metadata,
+        occupies_high_importance_quota_slot as _occupies_high_importance_slot,
     )
 except ImportError:  # pragma: no cover
     from ..tools._common import (  # type: ignore
@@ -55,6 +58,21 @@ except ImportError:  # pragma: no cover
         check_content_size as _check_content_size,
         check_pinned_quota as _check_pinned_quota,
         enforce_high_importance_quota as _enforce_high_importance_quota,
+        is_terminal_memory_metadata as _is_terminal_memory_metadata,
+        occupies_high_importance_quota_slot as _occupies_high_importance_slot,
+    )
+
+try:
+    from tools.plan.core import (  # type: ignore
+        is_letter_bucket,
+        letter_lock_revision,
+        letter_lock_state,
+    )
+except ImportError:  # pragma: no cover
+    from ..tools.plan.core import (  # type: ignore
+        is_letter_bucket,
+        letter_lock_revision,
+        letter_lock_state,
     )
 
 try:
@@ -453,21 +471,33 @@ def register(mcp) -> None:
                 )
 
             human_label = str((sh.config or {}).get("human") or "用户")
-            preview = await _await_history_worker(
-                preview_import,
-                raw_content,
-                filename,
-                human_label,
-            )
+            try:
+                preview = await _await_history_worker(
+                    preview_import,
+                    raw_content,
+                    filename,
+                    human_label,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "import preflight rejected malformed input: err_type=%s detail=hidden",
+                    type(exc).__name__,
+                )
+                return JSONResponse(
+                    {"ok": False, "error": "Import preview could not parse file"},
+                    status_code=400,
+                )
             raw_content = ""
             llm_ready = _import_llm_ready()
+            requires_llm = bool(preview.get("requires_llm", True))
             return JSONResponse({
                 **preview,
                 "filename": filename,
                 "size_bytes": size_bytes,
                 "import_running": False,
                 "llm_ready": llm_ready,
-                "can_start": bool(preview.get("ok")) and llm_ready,
+                "can_start": bool(preview.get("ok"))
+                and (llm_ready or not requires_llm),
             })
         finally:
             history_ingest_lock.release()
@@ -550,7 +580,11 @@ def register(mcp) -> None:
                         result["error"],
                     )
             except Exception as e:
-                logger.error(f"Import job {job_id} failed: {e}")
+                logger.error(
+                    "Import job %s failed: err_type=%s detail=hidden",
+                    job_id,
+                    type(e).__name__,
+                )
             finally:
                 release_job()
 
@@ -614,7 +648,7 @@ def register(mcp) -> None:
 
     @mcp.custom_route("/api/import/results", methods=["GET"])
     async def api_import_results(request: Request) -> Response:
-        """List recently imported/created buckets for review."""
+        """按有界分页列出待复核的导入桶。"""
         from starlette.responses import JSONResponse
         err = sh._require_auth(request)
         if err:
@@ -622,24 +656,75 @@ def register(mcp) -> None:
         try:
             limit = max(1, min(int(request.query_params.get("limit", "50")), 200))
         except (TypeError, ValueError, OverflowError):
-            return JSONResponse({"error": "limit must be an integer in [1,200]"}, status_code=400)
+            return JSONResponse({"error": "limit 必须是 [1,200] 范围内的整数"}, status_code=400)
+        try:
+            offset = int(request.query_params.get("offset", "0"))
+            if offset < 0:
+                raise ValueError
+        except (TypeError, ValueError, OverflowError):
+            return JSONResponse({"error": "offset 必须是非负整数"}, status_code=400)
         try:
             all_buckets = await sh.bucket_mgr.list_all(include_archive=False)
-            # Sort by created time, newest first
-            all_buckets.sort(key=lambda b: b["metadata"].get("created", ""), reverse=True)
+            imported_buckets = []
+            for bucket in all_buckets:
+                metadata = bucket.get("metadata", {})
+                if not isinstance(metadata, dict):
+                    continue
+                if not (
+                    parse_bool(metadata.get("imported"), default=False)
+                    or str(metadata.get("source_tool") or "").strip() == "import"
+                ):
+                    continue
+                imported_buckets.append(bucket)
+
+            # 使用稳定的最新优先顺序；即使有新导入追加，分页顺序仍可预测。
+            imported_buckets.sort(
+                key=lambda b: (
+                    str(b.get("metadata", {}).get("created", "")),
+                    str(b.get("id", "")),
+                ),
+                reverse=True,
+            )
+            page = imported_buckets[offset:offset + limit]
             results = []
-            for b in all_buckets[:limit]:
+            for b in page:
+                metadata = b["metadata"]
+                logical_letter = is_letter_bucket(b)
+                lock_state = letter_lock_state(b, "human")
+                letter_locked = bool(lock_state["locked"])
                 results.append({
                     "id": b["id"],
-                    "name": b["metadata"].get("name", ""),
-                    "content": b["content"][:300],
-                    "type": b["metadata"].get("type", ""),
-                    "domain": b["metadata"].get("domain", []),
-                    "tags": b["metadata"].get("tags", []),
-                    "importance": b["metadata"].get("importance", 5),
-                    "created": b["metadata"].get("created", ""),
+                    "name": (
+                        "一封上锁的信"
+                        if letter_locked else metadata.get("name", "")
+                    ),
+                    "content": (
+                        "这封信尚未向你开放。"
+                        if letter_locked else b["content"][:300]
+                    ),
+                    "type": metadata.get("type", ""),
+                    "domain": (
+                        ["letter"] if letter_locked else metadata.get("domain", [])
+                    ),
+                    "tags": (
+                        ["__letter__"] if letter_locked else metadata.get("tags", [])
+                    ),
+                    "importance": metadata.get("importance", 5),
+                    "created": metadata.get("created", ""),
+                    "imported": True,
+                    "letter_item": logical_letter,
+                    "letter_locked": letter_locked,
                 })
-            return JSONResponse({"buckets": results, "total": len(all_buckets)})
+            next_offset = offset + len(results)
+            has_more = next_offset < len(imported_buckets)
+            return JSONResponse({
+                "buckets": results,
+                "total": len(imported_buckets),
+                "offset": offset,
+                "limit": limit,
+                "has_more": has_more,
+                "next_offset": next_offset if has_more else None,
+            })
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -689,6 +774,9 @@ def register(mcp) -> None:
                         if not bucket:
                             errors += 1
                             continue
+                        if is_letter_bucket(bucket):
+                            errors += 1
+                            continue
                         metadata = bucket.get("metadata", {})
                         if not isinstance(metadata, dict):
                             metadata = {}
@@ -702,19 +790,18 @@ def register(mcp) -> None:
                             parse_bool(metadata.get("pinned"), default=False)
                             or parse_bool(metadata.get("protected"), default=False)
                         )
-                        bucket_type = str(
-                            metadata.get("type") or "dynamic"
-                        ).strip().lower()
                         target_importance = 9
                         if pinned_or_protected and current_importance >= 9:
                             # Importance is locked, but the requested semantic is
                             # already satisfied; keep the idempotent action.
                             target_importance = current_importance
-                        elif (
-                            current_importance < _HIGH_IMP_THRESHOLD
-                            and not pinned_or_protected
-                            and bucket_type not in {"letter", "archived"}
-                        ):
+                        projected_metadata = dict(metadata)
+                        projected_metadata["importance"] = target_importance
+                        reserves_high_importance = (
+                            _occupies_high_importance_slot(projected_metadata)
+                            and not _occupies_high_importance_slot(metadata)
+                        )
+                        if reserves_high_importance:
                             target_importance = (
                                 await _enforce_high_importance_quota(9)
                             )
@@ -747,13 +834,27 @@ def register(mcp) -> None:
                                 errors += 1
                                 continue
                 elif action == "pin":
-                    async with _quota_turn("pinned"):
+                    async with AsyncExitStack() as quota_stack:
+                        await quota_stack.enter_async_context(
+                            _quota_turn("pinned")
+                        )
+                        await quota_stack.enter_async_context(
+                            _quota_turn("high_importance")
+                        )
                         bucket = await sh.bucket_mgr.get(bid)
                         if not bucket:
                             errors += 1
                             continue
+                        if is_letter_bucket(bucket):
+                            errors += 1
+                            continue
+                        metadata = bucket.get("metadata", {})
+                        if _is_terminal_memory_metadata(metadata):
+                            errors += 1
+                            continue
                         already_pinned = parse_bool(
-                            bucket.get("metadata", {}).get("pinned"),
+                            metadata.get("pinned")
+                            if isinstance(metadata, dict) else None,
                             default=False,
                         )
                         if not already_pinned:
@@ -790,6 +891,9 @@ def register(mcp) -> None:
                         )
                         bucket = await sh.bucket_mgr.get(bid)
                         if not bucket:
+                            errors += 1
+                            continue
+                        if is_letter_bucket(bucket):
                             errors += 1
                             continue
                         metadata = bucket.get("metadata", {})
@@ -832,6 +936,10 @@ def register(mcp) -> None:
                             errors += 1
                             continue
                 elif action == "delete":
+                    bucket = await sh.bucket_mgr.get(bid)
+                    if not bucket or is_letter_bucket(bucket):
+                        errors += 1
+                        continue
                     ok = await sh.bucket_mgr.delete(bid)
                     if not ok:
                         errors += 1
@@ -864,13 +972,27 @@ def register(mcp) -> None:
         bucket = await sh.bucket_mgr.get(bucket_id)
         if not bucket:
             return JSONResponse({"error": "bucket not found"}, status_code=404)
+        logical_letter = is_letter_bucket(bucket)
+        lock_precondition = (
+            {"expected_lock_state": letter_lock_revision(bucket)}
+            if logical_letter else {}
+        )
+        if letter_lock_state(bucket, "human")["locked"]:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "locked letter cannot be edited from the bucket API",
+                    "updated": [],
+                },
+                status_code=403,
+            )
         try:
             body = await sh._read_json_object(request)
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
 
         field_order = (
-            "name", "type", "tags", "domain", "importance", "resolved",
+            "name", "title", "type", "tags", "domain", "importance", "resolved",
             "pinned", "digested", "dont_surface", "why_remembered",
             "weight", "content",
         )
@@ -891,6 +1013,12 @@ def register(mcp) -> None:
         metadata = bucket.get("metadata", {})
         if not isinstance(metadata, dict):
             metadata = {}
+        if _is_terminal_memory_metadata(metadata):
+            return reject(
+                "archived buckets cannot be edited",
+                status_code=409,
+                conflict="archived",
+            )
 
         bool_fields = {"resolved", "pinned", "digested", "dont_surface"}
 
@@ -920,6 +1048,8 @@ def register(mcp) -> None:
                 except (TypeError, ValueError):
                     return None
             if field == "why_remembered":
+                return str(raw or "")
+            if field == "title":
                 return str(raw or "")
             if field == "type":
                 return str(raw or "dynamic").strip().lower()
@@ -961,12 +1091,44 @@ def register(mcp) -> None:
 
         updates: dict = {}
 
+        explicit_name_changed = False
         if "name" in body:
             if not isinstance(body["name"], str) or not body["name"].strip():
                 return reject("name must be a non-empty string")
             name = sanitize_name(body["name"].strip())
             if name != before_values["name"]:
                 updates["name"] = name
+                explicit_name_changed = True
+
+        if "title" in body:
+            if not isinstance(body["title"], str):
+                return reject("title must be a string")
+            try:
+                title = normalize_memory_title(body["title"])
+            except ValueError as exc:
+                return reject(str(exc))
+            if not title:
+                return reject("title must be a non-empty string")
+            if title != before_values["title"]:
+                updates["title"] = title
+                # name 是带时间前缀的展示/文件名兼容字段。若调用方没有
+                # 同时明确修改 name，则与 title 在同一次 update 中同步。
+                if not explicit_name_changed:
+                    current_name = str(before_values["name"] or "")
+                    prefix = current_name[:19]
+                    has_timestamp = bool(
+                        len(prefix) == 19
+                        and prefix[4:5] == "-"
+                        and prefix[7:8] == "-"
+                        and prefix[10:11] == " "
+                        and prefix[13:14] == "-"
+                        and prefix[16:17] == "-"
+                    )
+                    derived_name = sanitize_name(
+                        f"{prefix} {title}" if has_timestamp else title
+                    )
+                    if derived_name != before_values["name"]:
+                        updates["name"] = derived_name
 
         for field, max_items in (("tags", 64), ("domain", 16)):
             if field not in body:
@@ -1051,6 +1213,26 @@ def register(mcp) -> None:
             except ValueError as e:
                 return reject(str(e))
 
+        if logical_letter and requested_type != current_type:
+            return reject(
+                "letter type cannot be changed from the bucket API",
+                status_code=409,
+                field="type",
+            )
+        if logical_letter and requested_pinned != current_pinned:
+            return reject(
+                "letter pin state cannot be changed from the bucket API",
+                status_code=409,
+                field="pinned",
+            )
+
+        unpinning_now = current_pinned and not requested_pinned and not protected
+        if unpinning_now and requested_importance is None:
+            return reject(
+                "unpinning requires importance from 1 to 10 in the same edit",
+                field="importance",
+            )
+
         type_changed = requested_type != current_type
         if type_changed:
             if protected and requested_type != "permanent":
@@ -1128,29 +1310,44 @@ def register(mcp) -> None:
             else int(updates.get("importance", before_values["importance"]))
         )
 
-        def occupies_high_importance_slot(
-            *, importance: int, pinned: bool, bucket_type: str
-        ) -> bool:
-            return (
-                importance >= _HIGH_IMP_THRESHOLD
-                and not pinned
-                and not protected
-                and bucket_type not in {"letter", "archived"}
-            )
-
-        occupied_high_before = occupies_high_importance_slot(
-            importance=before_values["importance"],
-            pinned=current_pinned,
-            bucket_type=current_type,
+        before_quota_metadata = dict(metadata)
+        before_quota_metadata.update({
+            "importance": before_values["importance"],
+            "pinned": current_pinned,
+            "protected": protected,
+            "type": current_type,
+            "dont_surface": before_values["dont_surface"],
+        })
+        after_quota_metadata = dict(before_quota_metadata)
+        after_quota_metadata.update({
+            "importance": final_importance,
+            "pinned": requested_pinned,
+            "type": final_type,
+            "dont_surface": updates.get(
+                "dont_surface", before_values["dont_surface"]
+            ),
+        })
+        occupied_high_before = _occupies_high_importance_slot(
+            before_quota_metadata
         )
-        occupies_high_after = occupies_high_importance_slot(
-            importance=final_importance,
-            pinned=requested_pinned,
-            bucket_type=final_type,
+        occupies_high_after = _occupies_high_importance_slot(
+            after_quota_metadata
         )
         reserves_high_importance = occupies_high_after and not occupied_high_before
+        eligibility_field_changed = (
+            pin_state_changed
+            or final_type != current_type
+            or after_quota_metadata["dont_surface"]
+            != before_values["dont_surface"]
+        )
+        importance_changed = final_importance != before_values["importance"]
         needs_high_importance_lock = (
-            occupied_high_before or occupies_high_after
+            eligibility_field_changed
+            or (
+                importance_changed
+                and max(final_importance, before_values["importance"])
+                >= _HIGH_IMP_THRESHOLD
+            )
         )
 
         if not updates:
@@ -1194,6 +1391,7 @@ def register(mcp) -> None:
                         "protected": protected,
                         "type": current_type,
                         "importance": before_values["importance"],
+                        "dont_surface": before_values["dont_surface"],
                     }
                     locked_quota_state = {
                         "pinned": bucket_value(locked_bucket, "pinned"),
@@ -1202,6 +1400,9 @@ def register(mcp) -> None:
                         ),
                         "type": bucket_value(locked_bucket, "type"),
                         "importance": bucket_value(locked_bucket, "importance"),
+                        "dont_surface": bucket_value(
+                            locked_bucket, "dont_surface"
+                        ),
                     }
                     changed_quota_fields = [
                         field for field in before_quota_state
@@ -1258,8 +1459,36 @@ def register(mcp) -> None:
                 ):
                     expected_values["type"] = "dynamic"
 
-                ok = await sh.bucket_mgr.update(bucket_id, **updates)
+                latest_bucket = await sh.bucket_mgr.get(bucket_id)
+                if not latest_bucket:
+                    return reject(
+                        "bucket changed concurrently; reload and retry",
+                        status_code=409,
+                        conflict="concurrent_change",
+                    )
+                if letter_lock_state(latest_bucket, "human")["locked"]:
+                    return reject(
+                        "letter was locked concurrently",
+                        status_code=409,
+                        conflict="concurrent_lock",
+                    )
+
+                ok = await sh.bucket_mgr.update(
+                    bucket_id,
+                    event_actor="human",
+                    **lock_precondition,
+                    **updates,
+                )
                 if not ok:
+                    latest = await sh.bucket_mgr.get(bucket_id)
+                    if _is_terminal_memory_metadata(
+                        (latest or {}).get("metadata", {})
+                    ):
+                        return reject(
+                            "bucket was archived concurrently",
+                            status_code=409,
+                            conflict="archived",
+                        )
                     return reject("update failed", status_code=500)
                 persisted_bucket = await sh.bucket_mgr.get(bucket_id)
                 if not persisted_bucket:

@@ -5,11 +5,13 @@ from unittest.mock import MagicMock
 import pytest
 
 import tools._runtime as rt
+from tools._common import memory_data_protocol_header
 from tools.breath import dispatch
 from tools.breath._verbatim import render_stored_bucket
 from tools.breath.importance import surface_by_importance
 from tools.breath.search import surface_search
 from tools.breath.surface import surface_default
+from utils import count_tokens_approx
 
 
 class ExplodingDehydrator:
@@ -202,7 +204,9 @@ async def test_token_budget_omits_whole_bucket_instead_of_truncating(monkeypatch
     manager = OrderedBucketManager([first, second])
     dehydrator = _install_runtime(manager)
     monkeypatch.setattr("tools.breath.search.random.random", lambda: 1.0)
-    _, first_cost = render_stored_bucket(first, "[bucket_id:first]")
+    _, first_cost = render_stored_bucket(
+        first, "[bucket_id:first]", "👣 Footprint：暂时无法读取"
+    )
 
     output = await _search("预算校验", max_tokens=first_cost)
     await asyncio.sleep(0)
@@ -243,6 +247,7 @@ async def test_default_surface_skips_oversized_core_and_keeps_later_core(monkeyp
     _, later_cost = render_stored_bucket(
         later,
         "📌 [核心准则] [bucket_id:later-core]",
+        "👣 Footprint：暂时无法读取",
     )
 
     output = await surface_default(
@@ -299,9 +304,16 @@ async def test_default_surface_skips_random_oversized_candidate_and_keeps_later_
 
     monkeypatch.setattr("tools.breath.surface.random.shuffle", blocker_first)
     monkeypatch.setattr("tools.breath.surface.random.random", lambda: 1.0)
-    _, top_cost = render_stored_bucket(top, "[权重:10.00] [bucket_id:top]")
-    _, high_cost = render_stored_bucket(high, "[权重:9.00] [bucket_id:high]")
-    rt.config["surfacing"]["breath_max_tokens"] = top_cost + high_cost
+    _, top_cost = render_stored_bucket(
+        top, "[权重:10.00] [bucket_id:top]", "👣 Footprint：暂时无法读取"
+    )
+    _, high_cost = render_stored_bucket(
+        high, "[权重:9.00] [bucket_id:high]", "👣 Footprint：暂时无法读取"
+    )
+    protocol_cost = count_tokens_approx(f"{memory_data_protocol_header()}\n") + 1
+    rt.config["surfacing"]["breath_max_tokens"] = (
+        protocol_cost + top_cost + high_cost
+    )
 
     output = await dispatch()
 
@@ -342,7 +354,9 @@ async def test_oversized_passive_association_does_not_report_primary_truncation(
     _install_runtime(manager)
     monkeypatch.setattr("tools.breath.surface.random.shuffle", lambda items: None)
     monkeypatch.setattr("tools.breath.surface.random.random", lambda: 1.0)
-    _, top_cost = render_stored_bucket(top, "[权重:10.00] [bucket_id:top]")
+    _, top_cost = render_stored_bucket(
+        top, "[权重:10.00] [bucket_id:top]", "👣 Footprint：暂时无法读取"
+    )
 
     output = await surface_default(
         max_results=1,

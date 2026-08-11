@@ -69,8 +69,12 @@ class SurfacePolicyVM:
         if normalized_mode in (SurfaceMode.SPONTANEOUS, SurfaceMode.DREAM):
             if _truthy(metadata.get("dont_surface")):
                 reasons.append("dont_surface")
+            if _truthy(metadata.get("digested")):
+                reasons.append("digested")
             if _truthy(metadata.get("anchor")):
                 reasons.append("anchor")
+            if _truthy(metadata.get("protected")):
+                reasons.append("protected")
             if bucket_type in self.private_types:
                 reasons.append("private_type")
         elif normalized_mode == SurfaceMode.IMPORTANCE:

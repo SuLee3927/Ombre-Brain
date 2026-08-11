@@ -8,7 +8,9 @@ dream 的第一步：从全量桶里筛出「过去 window_hours 内有变动的
 炸上下文。
 
 关键行为：
-- 排除 permanent / feel / plan / letter / pinned / protected
+- 排除 permanent / feel / plan / letter / pinned；protected 仅防衰减，
+  既不进入 dream core，也不进入近期候选
+- 排除 digested / dont_surface / anchor，避免已消化或主动隐藏的桶再次进入梦境
 - 任一 last_active 或 created 在窗口内即纳入
 - 默认按 last_active 倒序，让最新的修改排前面
 - 软上限 40，超了就改按 decay_engine 权重排序后截断
@@ -23,10 +25,17 @@ dream 的第一步：从全量桶里筛出「过去 window_hours 内有变动的
 
 from datetime import datetime, timedelta
 
+from ombrebrain.policy.surfacing import SurfacePolicyVM
 from .. import _runtime as rt
-from utils import parse_iso_datetime
+from ..plan.core import is_letter_bucket
+from utils import parse_bool, parse_iso_datetime
 
 DREAM_MAX_CANDIDATES = 40
+_SURFACE_POLICY = SurfacePolicyVM.default()
+
+
+def _can_dream(bucket: dict) -> bool:
+    return _SURFACE_POLICY.evaluate_bucket(bucket, mode="dream").allowed
 
 
 def _metadata_timestamp(meta: dict) -> float:
@@ -42,11 +51,12 @@ def collect_core_context(all_buckets: list) -> list:
         b for b in all_buckets
         if (
             b["metadata"].get("pinned", False)
-            or b["metadata"].get("protected", False)
             or b["metadata"].get("type") == "permanent"
         )
+        and not parse_bool(b["metadata"].get("protected"), default=False)
+        and _can_dream(b)
+        and not is_letter_bucket(b)
         and b["metadata"].get("type") not in ("letter", "self", "i")
-        and not b["metadata"].get("dont_surface", False)
     ]
     core.sort(
         key=lambda b: (
@@ -62,10 +72,11 @@ def collect_core_context(all_buckets: list) -> list:
 def collect_candidates(all_buckets: list, window_hours: int) -> list:
     candidates = [
         b for b in all_buckets
-        if b["metadata"].get("type") not in ("permanent", "feel", "plan", "letter", "self", "i")
+        if not is_letter_bucket(b)
+        and b["metadata"].get("type") not in ("permanent", "feel", "plan", "letter", "self", "i")
+        and _can_dream(b)
         and not b["metadata"].get("pinned", False)
-        and not b["metadata"].get("protected", False)
-        and not b["metadata"].get("dont_surface", False)
+        and not parse_bool(b["metadata"].get("protected"), default=False)
     ]
     cutoff = datetime.now() - timedelta(hours=window_hours)
 
