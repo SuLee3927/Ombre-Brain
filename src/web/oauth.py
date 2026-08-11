@@ -779,6 +779,11 @@ def _is_valid_static_mcp_token(token: str, resource: str = "") -> bool:
     configured = (
         os.environ.get("OMBRE_MCP_TOKEN", "").strip()
         or str(sh.config.get("mcp_token", "") or "").strip()
+        # Compatibility with the machine-to-machine credential already used
+        # by the REST/dashboard auth layer.  Older Codex clients send this
+        # token to /mcp as Bearer; keep hybrid mode from rejecting it merely
+        # because the MCP static-token field was never provisioned.
+        or os.environ.get("OMBRE_MACHINE_TOKEN", "").strip()
     )
     if not configured:
         return False
