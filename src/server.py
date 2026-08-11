@@ -53,7 +53,7 @@ from ombrebrain.storage.source_store import SourceStore
 from ombrebrain.security.deployment_profile import enforce_mcp_network_guard
 from import_memory import ImportEngine
 from migrate_engine import MigrateEngine
-from utils import get_version, load_config, setup_logging
+from utils import get_version, load_config, setup_logging, get_ai_name
 
 # --- iter 2.1：MCP 工具实现已按代码路径拆分到 tools/ 子包 ---
 # 本文件只保留 MCP 注册 + 路由（HTTP custom_route）+ 共享辅助。
@@ -760,7 +760,7 @@ async def hold(
     confidence: Optional[float] = None,
     test_data: Optional[bool] = False,
 ) -> str:
-    """仅在对话中已明确决定“这段内容值得成为长期记忆”时调用；不要因普通聊天、猜测或工具名称联想而自行调用。content 逐字保存，绝不压缩。title 可选；传入时是最终显式标题，优先于打标模型建议。系统自动补其余元数据，API 不可用时使用本地中性值继续保存。tags 逗号分隔，importance 1-10。pinned=True 标记为永久核心；feel=True 存为感受类记忆。source_bucket 是正在消化的原始记忆桶 ID。why_remembered 与 meaning 是可选的第一人称记录原因。media 可传服务器可读路径或 data_base64+filename 列表项。"""
+    """仅在对话中已明确决定“这段内容值得成为长期记忆”时调用；不要因普通聊天、猜测或工具名称联想而自行调用。content 逐字保存，绝不压缩。来源字段可显式传入：source_role 只能是 user_stated/ai_observed/ai_commitment/shared_event/system_derived/unknown；created_by 与 initiated_by 未传时自动使用当前 AI_NAME，source_role 无可靠证据时保持 unknown；confidence 只用于 ai_observed。"""
     return await _with_notice(
         _t_hold.dispatch(
             content=content, title=title, tags=tags, importance=importance,
@@ -1109,6 +1109,14 @@ async def introspect(
     promote: Optional[str] = "",
 ) -> str:
     """兼容旧客户端的自我认知入口；新客户端优先使用 I。"""
+    # The process identity is reliable caller provenance; content semantics
+    # are not.  Fill only creator/initiator automatically and leave
+    # source_role=unknown unless the caller declares a defensible role.
+    actor = get_ai_name()
+    if not created_by or created_by == "unknown":
+        created_by = actor
+    if not initiated_by or initiated_by == "unknown":
+        initiated_by = actor
     return await _with_notice(
         _t_i.dispatch(
             content=content, aspect=aspect, read=read, limit=limit, promote=promote

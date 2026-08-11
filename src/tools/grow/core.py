@@ -27,7 +27,7 @@ tools/grow/core.py — grow 长内容主路径（digest + merge）
 import asyncio
 import uuid
 
-from utils import normalize_memory_title
+from utils import normalize_memory_title, get_ai_name
 
 try:
     from errors import PublicToolError
@@ -45,6 +45,7 @@ from .._common import (
 
 
 async def grow_core(content: str) -> str:
+    actor = get_ai_name()
     try:
         items = await rt.dehydrator.digest(content)
     except Exception as e:
@@ -92,8 +93,8 @@ async def grow_core(content: str) -> str:
                 merge_why_remembered=item.get("why_remembered") or "",
                 source_tool="grow",
                 source_role=item.get("source_role", "unknown"),
-                created_by=item.get("created_by", "unknown"),
-                initiated_by=item.get("initiated_by", "unknown"),
+                created_by=item.get("created_by") or actor,
+                initiated_by=item.get("initiated_by") or actor,
                 source_turn_id=item.get("source_turn_id", ""),
                 source_timestamp=item.get("source_timestamp", ""),
                 source_quote=item.get("source_quote", ""),
@@ -133,6 +134,7 @@ async def grow_items(items: list, source_content: str = "") -> str:
     - 合并走 raw_merge=True（原文追加，不 LLM 压缩老+新），消除第三次失真。
     存储沿用 grow 风格：共享 grow_batch_id，source_tool=grow，dashboard 仍可按批展示。
     """
+    actor = get_ai_name()
     payload_err = check_grow_items_payload(items)
     if payload_err:
         return payload_err
@@ -267,8 +269,8 @@ async def grow_items(items: list, source_content: str = "") -> str:
                 source_refs=source_refs,
                 source_tool="grow",
                 source_role=item.get("source_role", "unknown"),
-                created_by=item.get("created_by", "unknown"),
-                initiated_by=item.get("initiated_by", "unknown"),
+                created_by=item.get("created_by") or actor,
+                initiated_by=item.get("initiated_by") or actor,
                 source_turn_id=item.get("source_turn_id", ""),
                 source_timestamp=item.get("source_timestamp", ""),
                 source_quote=item.get("source_quote", ""),
