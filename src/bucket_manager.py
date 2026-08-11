@@ -416,6 +416,13 @@ _ARCHIVED_LETTER_TERMINAL_BOOL_FIELDS = (
 # --- 字段截断长度（避免 frontmatter 肨胀）---
 _SOURCE_TOOL_MAX = 32
 _GROW_BATCH_ID_MAX = 64
+_SOURCE_ROLE_MAX = 32
+_SOURCE_ID_MAX = 160
+_SOURCE_QUOTE_MAX = 500
+_SOURCE_CONFIDENCE_MAX = 1.0
+_SOURCE_ROLES = frozenset({
+    "user_stated", "ai_observed", "ai_commitment", "shared_event", "system_derived", "unknown",
+})
 _WHY_REMEMBERED_MAX = 500
 _TRIGGERED_BY_MAX = 64
 _DEFAULT_MAX_BUCKET_BYTES = 50 * 1024
@@ -455,6 +462,14 @@ _METADATA_TEXT_LIMITS = {
     "source_tool": _SOURCE_TOOL_MAX,
     "grow_batch_id": _GROW_BATCH_ID_MAX,
     "last_merged_by": _SOURCE_TOOL_MAX,
+    "source_role": _SOURCE_ROLE_MAX,
+    "created_by": _SOURCE_ID_MAX,
+    "initiated_by": _SOURCE_ID_MAX,
+    "source_turn_id": _SOURCE_ID_MAX,
+    "source_timestamp": 64,
+    "source_quote": _SOURCE_QUOTE_MAX,
+    "confidence": 32,
+    "source_history": 12000,
     "_pre_anchor_source_tool": _SOURCE_TOOL_MAX,
 }
 
@@ -1416,6 +1431,13 @@ class BucketManager:
         triggered_by: str = "",
         weight: Optional[float] = None,
         source_tool: str = "",
+        source_role: str = "unknown",
+        created_by: str = "unknown",
+        initiated_by: str = "unknown",
+        source_turn_id: str = "",
+        source_timestamp: str = "",
+        source_quote: str = "",
+        confidence: Optional[float] = None,
         grow_batch_id: str = "",
         bucket_id_override: str = "",
         allow_embedding_fallback: bool = False,
@@ -1560,6 +1582,25 @@ class BucketManager:
         # grow_batch_id 仅 grow 路径会传，hold/feel 不会有这个字段。
         declared_source = str(source_tool or "direct").strip()[:_SOURCE_TOOL_MAX]
         metadata["source_tool"] = declared_source or "direct"
+        # Provenance is explicit metadata, never inferred from the body.  Old
+        # callers therefore remain safely marked unknown until evidence exists.
+        role = str(source_role or "unknown").strip()[:_SOURCE_ROLE_MAX]
+        if role not in _SOURCE_ROLES:
+            role = "unknown"
+        metadata["source_role"] = role or "unknown"
+        metadata["created_by"] = str(created_by or "unknown").strip()[:_SOURCE_ID_MAX] or "unknown"
+        metadata["initiated_by"] = str(initiated_by or "unknown").strip()[:_SOURCE_ID_MAX] or "unknown"
+        if source_turn_id:
+            metadata["source_turn_id"] = str(source_turn_id).strip()[:_SOURCE_ID_MAX]
+        if source_timestamp:
+            metadata["source_timestamp"] = str(source_timestamp).strip()[:64]
+        if source_quote:
+            metadata["source_quote"] = self._sanitize_text(str(source_quote)).strip()[:_SOURCE_QUOTE_MAX]
+        if role == "ai_observed" and confidence is not None:
+            try:
+                metadata["confidence"] = max(0.0, min(1.0, float(confidence)))
+            except (TypeError, ValueError):
+                pass
         if grow_batch_id:
             metadata["grow_batch_id"] = str(grow_batch_id).strip()[:_GROW_BATCH_ID_MAX]
 
@@ -2496,6 +2537,8 @@ class BucketManager:
                   # _pre_anchor_source_tool 是 anchor 时保存的原始 source_tool，
                   # release 时自动恢复；None 表示删除该字段。
                   "source_tool", "grow_batch_id", "last_merged_by", "_pre_anchor_source_tool",
+                  "source_role", "created_by", "initiated_by", "source_turn_id",
+                  "source_timestamp", "source_quote", "confidence", "source_history",
                   # I 沉淀机制字段（tools/i/core.py 维护，bucket_manager 不生成也不解读）：
                   # i_stage        "candidate" | "promoted"，标一条普通记忆是 I 候选
                   # i_dream_dates  被 dream 见证过的日期列表（按天去重），升级门槛的唯一依据
@@ -2531,6 +2574,12 @@ class BucketManager:
                         post["anchor"] = True
                     else:
                         post.metadata.pop("anchor", None)
+                elif k == "source_history":
+                    history = kwargs[k]
+                    if history is None:
+                        post.metadata.pop(k, None)
+                    elif isinstance(history, list):
+                        post[k] = history[-20:]
                 else:
                     if kwargs[k] is None:
                         # None = 明确删除该 frontmatter 字段（用于 anchor release 清理临时字段）

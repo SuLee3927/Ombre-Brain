@@ -25,6 +25,19 @@ def _miss_block(bucket: dict) -> str:
     """
     meta = bucket.get("metadata", {}) or {}
     lines = []
+    provenance = {
+        key: meta[key]
+        for key in (
+            "source_role", "created_by", "initiated_by", "source_turn_id",
+            "source_timestamp", "source_quote", "confidence", "source_history",
+        )
+        if key in meta and meta[key] not in (None, "", [], {})
+    }
+    if isinstance(provenance.get("source_history"), list):
+        provenance["source_history"] = provenance["source_history"][-3:]
+    if provenance:
+        import json
+        lines.append("🧭 source: " + json.dumps(provenance, ensure_ascii=False, separators=(",", ":")))
     for item in meta.get("meaning") or []:
         if item:
             lines.append(f"💭 meaning: {item}")

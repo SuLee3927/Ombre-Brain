@@ -37,6 +37,13 @@ async def store_pinned(
     title: str = "",
     meaning: str = "",
     media: list | None = None,
+    source_role: str = "unknown",
+    created_by: str = "unknown",
+    initiated_by: str = "unknown",
+    source_turn_id: str = "",
+    source_timestamp: str = "",
+    source_quote: str = "",
+    confidence: float | None = None,
 ) -> str:
     try:
         analysis = await rt.dehydrator.analyze(content)
@@ -80,6 +87,10 @@ async def store_pinned(
             pinned=True,
             why_remembered=why_remembered,
             source_tool="hold",
+            source_role=source_role, created_by=created_by,
+            initiated_by=initiated_by, source_turn_id=source_turn_id,
+            source_timestamp=source_timestamp, source_quote=source_quote,
+            confidence=confidence,
             event_actor="llm",
             allow_embedding_fallback=True,
             meaning=meaning,

@@ -91,6 +91,13 @@ async def grow_core(content: str) -> str:
                 title=normalize_memory_title(item.get("name", "")),
                 merge_why_remembered=item.get("why_remembered") or "",
                 source_tool="grow",
+                source_role=item.get("source_role", "unknown"),
+                created_by=item.get("created_by", "unknown"),
+                initiated_by=item.get("initiated_by", "unknown"),
+                source_turn_id=item.get("source_turn_id", ""),
+                source_timestamp=item.get("source_timestamp", ""),
+                source_quote=item.get("source_quote", ""),
+                confidence=item.get("confidence"),
                 grow_batch_id=batch_id,
             )
             if embed_warn and embed_warn not in embed_warnings:
@@ -259,6 +266,13 @@ async def grow_items(items: list, source_content: str = "") -> str:
                 merge_why_remembered=why_remembered,
                 source_refs=source_refs,
                 source_tool="grow",
+                source_role=item.get("source_role", "unknown"),
+                created_by=item.get("created_by", "unknown"),
+                initiated_by=item.get("initiated_by", "unknown"),
+                source_turn_id=item.get("source_turn_id", ""),
+                source_timestamp=item.get("source_timestamp", ""),
+                source_quote=item.get("source_quote", ""),
+                confidence=item.get("confidence"),
                 grow_batch_id=batch_id,
                 raw_merge=True,  # 逐字追加，合并不压缩
             )

@@ -73,6 +73,8 @@ _WHY_REMEMBERED_MAX_CHARS = 500
 _GROW_ITEM_FIELDS = frozenset({
     "content", "title", "name", "tags", "importance", "domain",
     "valence", "arousal", "source_ranges", "why_remembered",
+    "source_role", "created_by", "initiated_by", "source_turn_id",
+    "source_timestamp", "source_quote", "confidence",
 })
 
 # --- importance≥9 配额（rule.md §1.0 哲学） ---
@@ -1033,6 +1035,13 @@ async def merge_or_create(
     why_remembered: str = "",
     merge_why_remembered: str = "",
     source_tool: str = "",
+    source_role: str = "unknown",
+    created_by: str = "unknown",
+    initiated_by: str = "unknown",
+    source_turn_id: str = "",
+    source_timestamp: str = "",
+    source_quote: str = "",
+    confidence: float | None = None,
     grow_batch_id: str = "",
     meaning: str = "",
     media: list | str | None = None,
@@ -1064,6 +1073,10 @@ async def merge_or_create(
             why_remembered=why_remembered,
             merge_why_remembered=merge_why_remembered,
             source_tool=source_tool,
+            source_role=source_role, created_by=created_by,
+            initiated_by=initiated_by, source_turn_id=source_turn_id,
+            source_timestamp=source_timestamp, source_quote=source_quote,
+            confidence=confidence,
             grow_batch_id=grow_batch_id, meaning=meaning, media=media,
             test_data=test_data,
             _defer_derived_index=True,
@@ -1095,6 +1108,13 @@ async def _merge_or_create_inner(
     why_remembered: str = "",
     merge_why_remembered: str = "",
     source_tool: str = "",
+    source_role: str = "unknown",
+    created_by: str = "unknown",
+    initiated_by: str = "unknown",
+    source_turn_id: str = "",
+    source_timestamp: str = "",
+    source_quote: str = "",
+    confidence: float | None = None,
     grow_batch_id: str = "",
     meaning: str = "",
     media: list | str | None = None,
@@ -1257,6 +1277,23 @@ async def _merge_or_create_inner(
                         update_kwargs["source_refs_append"] = source_refs
                     if source_tool:
                         update_kwargs["last_merged_by"] = source_tool
+                    # Preserve the original author and append a compact
+                    # provenance record for this merge/reconstruction. Never
+                    # overwrite an existing source with an inferred one.
+                    merge_provenance = {
+                        "source_role": source_role or "unknown",
+                        "created_by": created_by or "unknown",
+                        "initiated_by": initiated_by or "unknown",
+                        "source_turn_id": source_turn_id or "",
+                        "source_timestamp": source_timestamp or "",
+                        "source_quote": source_quote or "",
+                        "confidence": confidence if source_role == "ai_observed" else None,
+                        "reconstructor": source_tool or "unknown",
+                    }
+                    old_history = metadata.get("source_history") or []
+                    if not isinstance(old_history, list):
+                        old_history = []
+                    update_kwargs["source_history"] = (list(old_history) + [merge_provenance])[-20:]
                     # grow digest 在首次拆条时还没有稳定的目标桶，
                     # 只能在后续确认命中同一事件时补写。旧值优先，
                     # 自动整理永不覆盖已有的人工或历史理由。
@@ -1387,6 +1424,10 @@ async def _merge_or_create_inner(
             title=title,
             why_remembered=why_remembered,
             source_tool=source_tool,
+            source_role=source_role, created_by=created_by,
+            initiated_by=initiated_by, source_turn_id=source_turn_id,
+            source_timestamp=source_timestamp, source_quote=source_quote,
+            confidence=confidence,
             event_actor="llm",
             grow_batch_id=grow_batch_id,
             meaning=meaning,

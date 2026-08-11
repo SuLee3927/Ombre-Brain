@@ -111,6 +111,13 @@ def _bucket_provenance(bucket: dict) -> dict:
                 "origin",
                 "imported_from",
                 "created_by",
+                "source_role",
+                "initiated_by",
+                "source_turn_id",
+                "source_timestamp",
+                "source_quote",
+                "confidence",
+                "source_history",
                 "trusted",
             )
             if key in declared
@@ -120,7 +127,11 @@ def _bucket_provenance(bucket: dict) -> dict:
     elif declared is not None:
         provenance["declared"] = declared
 
-    for key in ("source", "source_tool", "source_bucket", "origin", "imported_from", "created_by"):
+    for key in (
+        "source", "source_tool", "source_bucket", "origin", "imported_from",
+        "created_by", "source_role", "initiated_by", "source_turn_id",
+        "source_timestamp", "source_quote", "confidence", "source_history",
+    ):
         if key in meta:
             provenance[key] = meta[key]
     return provenance

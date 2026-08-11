@@ -41,6 +41,13 @@ def register(mcp) -> None:
                 importance=int(body.get("importance", 5) or 5),
                 pinned=bool(body.get("pinned", False)),
                 feel=bool(body.get("feel", False)),
+                source_role=str(body.get("source_role", "unknown") or "unknown"),
+                created_by=str(body.get("created_by", "unknown") or "unknown"),
+                initiated_by=str(body.get("initiated_by", "unknown") or "unknown"),
+                source_turn_id=str(body.get("source_turn_id", "") or ""),
+                source_timestamp=str(body.get("source_timestamp", "") or ""),
+                source_quote=str(body.get("source_quote", "") or ""),
+                confidence=body.get("confidence"),
             )
             return JSONResponse({"ok": True, "result": result})
         except Exception as e:

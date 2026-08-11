@@ -51,6 +51,13 @@ async def store_feel(
     title: str = "",
     meaning: str = "",
     media: list | None = None,
+    source_role: str = "unknown",
+    created_by: str = "unknown",
+    initiated_by: str = "unknown",
+    source_turn_id: str = "",
+    source_timestamp: str = "",
+    source_quote: str = "",
+    confidence: float | None = None,
 ) -> str:
     feel_valence = valence if 0 <= valence <= 1 else 0.5
     feel_arousal = arousal if 0 <= arousal <= 1 else 0.3
@@ -68,6 +75,10 @@ async def store_feel(
         why_remembered=why_remembered,
         triggered_by=source_bucket.strip() if source_bucket else "",
         source_tool="hold",
+        source_role=source_role, created_by=created_by,
+        initiated_by=initiated_by, source_turn_id=source_turn_id,
+        source_timestamp=source_timestamp, source_quote=source_quote,
+        confidence=confidence,
         event_actor="llm",
         bucket_id_override=_build_feel_id(feel_valence),
         allow_embedding_fallback=True,

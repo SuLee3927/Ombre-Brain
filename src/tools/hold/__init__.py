@@ -49,6 +49,13 @@ async def dispatch(
     why_remembered: Optional[str] = "",
     meaning: Optional[str] = "",
     media: Optional[list | str] = None,
+    source_role: str = "unknown",
+    created_by: str = "unknown",
+    initiated_by: str = "unknown",
+    source_turn_id: str = "",
+    source_timestamp: str = "",
+    source_quote: str = "",
+    confidence: Optional[float] = None,
     test_data: Optional[bool] = False,
 ) -> str:
     content = "" if content is None else str(content)
@@ -178,6 +185,10 @@ async def dispatch(
             why_remembered=why_remembered,
             meaning=meaning,
             media=media,
+            source_role=source_role, created_by=created_by,
+            initiated_by=initiated_by, source_turn_id=source_turn_id,
+            source_timestamp=source_timestamp, source_quote=source_quote,
+            confidence=confidence,
         )
         return result
 
@@ -191,6 +202,10 @@ async def dispatch(
             why_remembered=why_remembered,
             meaning=meaning,
             media=media,
+            source_role=source_role, created_by=created_by,
+            initiated_by=initiated_by, source_turn_id=source_turn_id,
+            source_timestamp=source_timestamp, source_quote=source_quote,
+            confidence=confidence,
         )
         return result
 
@@ -204,6 +219,10 @@ async def dispatch(
         why_remembered=why_remembered,
         meaning=meaning,
         media=media,
+        source_role=source_role, created_by=created_by,
+        initiated_by=initiated_by, source_turn_id=source_turn_id,
+        source_timestamp=source_timestamp, source_quote=source_quote,
+        confidence=confidence,
         test_data=test_data,
     )
     return result
