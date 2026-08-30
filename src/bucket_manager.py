@@ -2602,6 +2602,11 @@ class BucketManager:
             post["last_active"] = now_iso()
             post["activation_count"] = int(post.get("activation_count") or 0) + 1
 
+        # ``created`` answers when this memory first became a bucket.  Keep a
+        # separate mutation clock so later hold/grow merges and trace edits do
+        # not disappear under the original creation date in human views.
+        post["updated_at"] = now_iso()
+
         final_type = str(post.get("type") or current_type).strip().lower()
         target_path = file_path
         if final_type in _EDITABLE_BUCKET_TYPES:

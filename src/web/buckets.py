@@ -137,6 +137,8 @@ def register(mcp) -> None:
                 letter_locked = bool(lock_state["locked"])
                 created_epoch_ms = _datetime_epoch_ms(meta.get("created"))
                 last_active_epoch_ms = _datetime_epoch_ms(meta.get("last_active"))
+                updated_at = meta.get("updated_at") or meta.get("created", "")
+                updated_epoch_ms = _datetime_epoch_ms(updated_at)
                 result.append({
                     "id": b["id"],
                     "name": (
@@ -162,6 +164,8 @@ def register(mcp) -> None:
                     or str(meta.get("source_tool") or "").strip() == "import",
                     "created": meta.get("created", ""),
                     "created_epoch_ms": created_epoch_ms,
+                    "updated_at": updated_at,
+                    "updated_epoch_ms": updated_epoch_ms,
                     "last_active": meta.get("last_active", ""),
                     "last_active_epoch_ms": last_active_epoch_ms,
                     "activation_count": meta.get("activation_count", 0),
