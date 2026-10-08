@@ -91,6 +91,8 @@ def _is_hook_request_authorized(request) -> bool:
         os.environ.get("OMBRE_HOOK_TOKEN", "").strip(),
         str(_hook_setting("token", "") or "").strip(),
         os.environ.get("OMBRE_MACHINE_TOKEN", "").strip(),
+        os.environ.get("OMBRE_MCP_TOKEN", "").strip(),
+        os.environ.get("OMBRE_MCP_STATIC_TOKEN", "").strip(),
     )))
     if tokens:
         auth = _header_value(request, "authorization")

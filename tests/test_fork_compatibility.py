@@ -17,6 +17,12 @@ def test_machine_token_authenticates_dashboard_api(monkeypatch):
     assert _shared._require_auth(request) is None
 
 
+def test_static_mcp_token_authenticates_machine_api(monkeypatch):
+    monkeypatch.delenv("OMBRE_MACHINE_TOKEN", raising=False)
+    monkeypatch.setenv("OMBRE_MCP_STATIC_TOKEN", "static-secret")
+    assert _shared._require_auth(Request("Bearer static-secret")) is None
+
+
 def test_machine_token_authenticates_hook_compatible_routes(monkeypatch):
     monkeypatch.delenv("OMBRE_HOOK_ALLOW_PUBLIC", raising=False)
     monkeypatch.delenv("OMBRE_HOOK_TOKEN", raising=False)

@@ -787,8 +787,8 @@
     },
     {
       "path": "src/web/_shared.py",
-      "sha256": "9c00e132a014e8caaf0e5ba2d71c2d9c91ca42ca3116f21ac0f164d96e62bc25",
-      "size": 43064
+      "sha256": "af9d02fb94139e01cb7b0255a2387f4a907a8add997d699755ad08b35f0f744d",
+      "size": 43249
     },
     {
       "path": "src/web/auth.py",
@@ -822,8 +822,8 @@
     },
     {
       "path": "src/web/hooks.py",
-      "sha256": "74d7c8d96c3548e66fcccae35a756b1dbe3bc663e0cf6e64020f7bc469d64e60",
-      "size": 22901
+      "sha256": "1556744c10153dbe25115a69e799cce7df4ab0867e75ad68e65f5e6bbaffe835",
+      "size": 23018
     },
     {
       "path": "src/web/import_api.py",
