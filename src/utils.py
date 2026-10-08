@@ -524,6 +524,9 @@ def load_config(config_path: Optional[str] = None) -> dict:
 
     # 向量化组（embedding）—— 写到 config["embedding"][*]
     _apply_env_override(config, "OMBRE_EMBED_API_KEY", "embedding", "api_key")
+    # Fork deployments used this spelling before upstream standardized EMBED.
+    if not os.environ.get("OMBRE_EMBED_API_KEY", "").strip():
+        _apply_env_override(config, "OMBRE_EMBEDDING_API_KEY", "embedding", "api_key")
     _apply_env_override(config, "OMBRE_EMBED_BASE_URL", "embedding", "base_url")
     _apply_env_override(config, "OMBRE_EMBED_MODEL", "embedding", "model")
     _apply_env_override(config, "OMBRE_EMBED_FORMAT", "embedding", "api_format")

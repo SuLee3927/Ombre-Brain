@@ -778,6 +778,8 @@ def _is_valid_static_mcp_token(token: str, resource: str = "") -> bool:
         return False
     configured = (
         os.environ.get("OMBRE_MCP_TOKEN", "").strip()
+        or os.environ.get("OMBRE_MCP_STATIC_TOKEN", "").strip()
+        or os.environ.get("OMBRE_MACHINE_TOKEN", "").strip()
         or str(sh.config.get("mcp_token", "") or "").strip()
     )
     if not configured:

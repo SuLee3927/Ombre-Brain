@@ -87,14 +87,22 @@ def _is_hook_request_authorized(request) -> bool:
     if allow_public:
         return True
 
-    token = (os.environ.get("OMBRE_HOOK_TOKEN") or str(_hook_setting("token", "") or "")).strip()
-    if token:
+    tokens = tuple(filter(None, (
+        os.environ.get("OMBRE_HOOK_TOKEN", "").strip(),
+        str(_hook_setting("token", "") or "").strip(),
+        os.environ.get("OMBRE_MACHINE_TOKEN", "").strip(),
+    )))
+    if tokens:
         auth = _header_value(request, "authorization")
         supplied = [
             _header_value(request, "x-ombre-hook-token"),
             auth[7:] if auth.startswith("Bearer ") else "",
         ]
-        if any(v and sh._constant_time_text_equal(v, token) for v in supplied):
+        if any(
+            value and sh._constant_time_text_equal(value, token)
+            for value in supplied
+            for token in tokens
+        ):
             return True
 
     try:

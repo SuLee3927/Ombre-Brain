@@ -1136,7 +1136,13 @@ def _set_session_cookie(resp: Response, token: str, request: Request) -> None:
 def _require_auth(request: Request) -> Response | None:
     """Return JSONResponse(401) if not authenticated, else None."""
     from starlette.responses import JSONResponse
-    if not _is_authenticated(request):
+    machine_token = os.environ.get("OMBRE_MACHINE_TOKEN", "").strip()
+    authorization = str(request.headers.get("authorization", "") or "")
+    supplied = authorization[7:] if authorization.startswith("Bearer ") else ""
+    machine_authenticated = bool(
+        machine_token and supplied and _constant_time_text_equal(supplied, machine_token)
+    )
+    if not machine_authenticated and not _is_authenticated(request):
         return JSONResponse(
             {"error": "Unauthorized", "setup_needed": _is_setup_needed()},
             status_code=401,

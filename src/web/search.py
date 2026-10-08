@@ -24,6 +24,7 @@ from ombrebrain.retrieval.bucket_scoring import (
     calc_topic_score,
 )
 from . import _shared as sh
+from .hooks import _is_hook_request_authorized
 
 logger = sh.logger
 _SURFACE_POLICY = SurfacePolicyVM.default()
@@ -100,9 +101,10 @@ def register(mcp) -> None:
     async def api_search(request: Request) -> Response:
         """Search buckets by query."""
         from starlette.responses import JSONResponse
-        err = sh._require_auth(request)
-        if err:
-            return err
+        if not _is_hook_request_authorized(request):
+            err = sh._require_auth(request)
+            if err:
+                return err
         query = request.query_params.get("q", "")
         if not query:
             return JSONResponse({"error": "missing q parameter"}, status_code=400)
